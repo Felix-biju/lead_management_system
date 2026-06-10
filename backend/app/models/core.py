@@ -1,8 +1,8 @@
-from sqlalchemy import Column, String, Integer, Enum, DateTime, ForeignKey
+import uuid
+import datetime
+from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
-from datetime import datetime
-import uuid
 
 def generate_uuid():
     return str(uuid.uuid4())
@@ -29,13 +29,29 @@ class Lead(Base):
     phone = Column(String(20), unique=True, index=True, nullable=False)
     source = Column(String(50), default="Manual Entry")
     
-    # State Machine Pipeline
-    stage = Column(Enum("New", "Contacted", "Interested", "Negotiating", "Closed", name="lead_stages"), default="New")
+
+   # State Machine Pipeline (Updated with Won/Lost)
+    stage = Column(Enum("New", "Contacted", "Interested", "Negotiating", "Closed Won", "Closed Lost", name="lead_stages"), default="New")
     
     # Ownership
     owner_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
     # Relationship back to the user
     owner = relationship("User", back_populates="leads")
+    # (Inside the Lead class)
+    # NEW: The connection to the notes table
+    notes = relationship("Note", back_populates="lead", cascade="all, delete-orphan")
+
+    # --- NEW: NOTES TABLE ---
+class Note(Base):
+    __tablename__ = "notes"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    lead_id = Column(String(36), ForeignKey("leads.id"), nullable=False)
+    content = Column(Text, nullable=False)
+    author = Column(String(100), default="Agent")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # The connection back to the lead
+    lead = relationship("Lead", back_populates="notes")

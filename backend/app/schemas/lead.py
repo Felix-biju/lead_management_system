@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 
-# We swap EmailStr for a standard str to avoid extra library dependencies
 class LeadCreate(BaseModel):
     first_name: str
     last_name: str
@@ -11,10 +10,15 @@ class LeadCreate(BaseModel):
 
 class LeadResponse(LeadCreate):
     id: str
+    stage: str
+    owner_id: Optional[str] = None # <-- NEW: Allows React to see who owns it
 
     class Config:
         from_attributes = True
 
-# Add this to the bottom of lead.py
 class LeadStageUpdate(BaseModel):
     stage: str
+
+# --- NEW: Schema for assigning agents ---
+class LeadOwnerUpdate(BaseModel):
+    owner_id: str
