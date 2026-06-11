@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-// --- NEW: Charting Imports ---
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
 function App() {
-  // --- STATE ---
-  const [activeTab, setActiveTab] = useState('Dashboard') // NEW: Tab switching state
+  const [activeTab, setActiveTab] = useState('Dashboard')
   const [formData, setFormData] = useState({ first_name: '', last_name: '', email: '', phone: '' })
   const [submitStatus, setSubmitStatus] = useState(null)
   const [leads, setLeads] = useState([])
@@ -16,7 +14,10 @@ function App() {
   const [notes, setNotes] = useState([])
   const [newNote, setNewNote] = useState('')
 
-  // --- API CALLS ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [sortConfig, setSortConfig] = useState({ key: 'first_name', direction: 'asc' })
+  const leadsPerPage = 5 
+
   const fetchData = async () => {
     try {
       const [leadsRes, usersRes] = await Promise.all([
@@ -31,6 +32,7 @@ function App() {
   }
 
   useEffect(() => { fetchData() }, [])
+  useEffect(() => { setCurrentPage(1) }, [searchTerm, agentFilter])
 
   const handleSelectLeadNotes = async (lead) => {
     setActiveLead(lead)
@@ -57,7 +59,7 @@ function App() {
     setSubmitStatus("Saving...")
     try {
       await axios.post('http://127.0.0.1:8000/api/leads', formData)
-      setSubmitStatus("✅ Lead captured!")
+      setSubmitStatus("✅ Lead captured successfully!")
       setFormData({ first_name: '', last_name: '', email: '', phone: '' })
       fetchData()
       setTimeout(() => setSubmitStatus(null), 3000)
@@ -79,12 +81,25 @@ function App() {
     } catch (error) { alert("Failed to assign agent.") }
   }
 
-  // --- LOGIC ---
-  const kpis = {
-    new: leads.filter(l => l.stage === 'New').length,
-    active: leads.filter(l => ['Contacted', 'Interested', 'Negotiating'].includes(l.stage)).length,
-    won: leads.filter(l => l.stage === 'Closed Won').length,
-    lost: leads.filter(l => l.stage === 'Closed Lost').length
+  const exportToCSV = () => {
+    const headers = ["First Name", "Last Name", "Email", "Phone", "Stage", "Owner ID"]
+    const csvRows = [headers.join(",")]
+    filteredLeads.forEach(lead => {
+      const row = [lead.first_name, lead.last_name, lead.email, lead.phone, lead.stage, lead.owner_id || "Unassigned"]
+      csvRows.push(row.map(value => `"${value}"`).join(","))
+    })
+    const blob = new Blob([csvRows.join("\n")], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `LMS_Export_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+  }
+
+  const requestSort = (key) => {
+    let direction = 'asc'
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc'
+    setSortConfig({ key, direction })
   }
 
   const filteredLeads = leads.filter(lead => {
@@ -94,7 +109,24 @@ function App() {
     return matchesSearch && matchesAgent
   })
 
-  // --- NEW: DATA MAPPING FOR CHARTS ---
+  const sortedLeads = [...filteredLeads].sort((a, b) => {
+    if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1
+    if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1
+    return 0
+  })
+
+  const indexOfLastLead = currentPage * leadsPerPage
+  const indexOfFirstLead = indexOfLastLead - leadsPerPage
+  const currentLeads = sortedLeads.slice(indexOfFirstLead, indexOfLastLead)
+  const totalPages = Math.ceil(sortedLeads.length / leadsPerPage)
+
+  const kpis = {
+    new: leads.filter(l => l.stage === 'New').length,
+    active: leads.filter(l => ['Contacted', 'Interested', 'Negotiating'].includes(l.stage)).length,
+    won: leads.filter(l => l.stage === 'Closed Won').length,
+    lost: leads.filter(l => l.stage === 'Closed Lost').length
+  }
+
   const stageData = [
     { name: 'New', count: leads.filter(l => l.stage === 'New').length },
     { name: 'Contacted', count: leads.filter(l => l.stage === 'Contacted').length },
@@ -112,7 +144,6 @@ function App() {
     leads: leads.filter(l => l.owner_id === user.id).length
   }))
 
-  // --- UI COMPONENTS ---
   const MetricCard = ({ title, value, color }) => (
     <div style={{ flex: 1, padding: '24px', borderRadius: '12px', backgroundColor: '#fff', borderLeft: `5px solid ${color}`, boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
       <h4 style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</h4>
@@ -134,11 +165,19 @@ function App() {
     </div>
   )
 
-  // --- RENDER ---
+  const SortHeader = ({ label, sortKey }) => (
+    <th onClick={() => requestSort(sortKey)} style={{ padding: '16px 24px', fontWeight: '600', borderBottom: '1px solid #e2e8f0', cursor: 'pointer', userSelect: 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        {label}
+        {sortConfig.key === sortKey && <span style={{ color: '#3b82f6' }}>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>}
+      </div>
+    </th>
+  )
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f1f5f9', margin: 0, overflow: 'hidden' }}>
       
-      {/* 1. SIDEBAR */}
+      {/* SIDEBAR */}
       <div style={{ width: '260px', backgroundColor: '#0f172a', color: 'white', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '24px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #1e293b', marginBottom: '16px' }}>
           <div style={{ width: '32px', height: '32px', backgroundColor: '#3b82f6', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>⚡️</div>
@@ -146,19 +185,19 @@ function App() {
         </div>
         
         <div style={{ flex: 1 }}>
-          {/* UPDATED: Nav items now change state */}
           <NavItem icon="📊" label="Dashboard" active={activeTab === 'Dashboard'} onClick={() => setActiveTab('Dashboard')} />
+          <NavItem icon="👥" label="Leads Pipeline" active={activeTab === 'Leads'} onClick={() => setActiveTab('Leads')} />
           <NavItem icon="📈" label="Analytics" active={activeTab === 'Analytics'} onClick={() => setActiveTab('Analytics')} />
           <NavItem icon="⚙️" label="Settings" active={activeTab === 'Settings'} onClick={() => setActiveTab('Settings')} />
         </div>
       </div>
 
-      {/* 2. MAIN CONTENT WRAPPER */}
+      {/* MAIN CONTENT WRAPPER */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         
         {/* Top Header */}
         <div style={{ height: '70px', backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', flexShrink: 0 }}>
-          <h2 style={{ margin: 0, fontSize: '1.4em', color: '#0f172a', fontWeight: '600' }}>{activeTab}</h2>
+          <h2 style={{ margin: 0, fontSize: '1.4em', color: '#0f172a', fontWeight: '600' }}>{activeTab === 'Leads' ? 'Live Database' : activeTab}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ color: '#64748b', fontSize: '0.9em', fontWeight: '500' }}>Welcome back, Felix</span>
             <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2em' }}>👨🏻‍💻</div>
@@ -168,98 +207,122 @@ function App() {
         {/* Scrollable Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
           
-          {/* --- VIEW: DASHBOARD --- */}
+          {/* --- VIEW: 1. DASHBOARD --- */}
           {activeTab === 'Dashboard' && (
-            <>
-              <div style={{ display: 'flex', gap: '24px', marginBottom: '32px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '1200px' }}>
+              
+              <div style={{ display: 'flex', gap: '24px' }}>
                 <MetricCard title="New Pipeline" value={kpis.new} color="#3b82f6" />
                 <MetricCard title="Active Deals" value={kpis.active} color="#eab308" />
                 <MetricCard title="Deals Won" value={kpis.won} color="#22c55e" />
                 <MetricCard title="Deals Lost" value={kpis.lost} color="#ef4444" />
               </div>
-              
-              <div style={{ display: 'flex', gap: '32px', alignItems: 'flex-start' }}>
-                <div style={{ width: '320px', backgroundColor: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', flexShrink: 0 }}>
-                  <h3 style={{ margin: '0 0 20px 0', color: '#0f172a', fontSize: '1.1em' }}>⚡️ Quick Add Lead</h3>
-                  <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <input name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleChange} required style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }}/>
-                    <input name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleChange} required style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }}/>
-                    <input name="email" type="email" placeholder="Email Address" value={formData.email} onChange={handleChange} required style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }}/>
-                    <input name="phone" placeholder="Phone Number" value={formData.phone} onChange={handleChange} required style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }}/>
-                    <button type="submit" style={{ padding: '12px', background: '#0f172a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', marginTop: '8px' }}>Add to Pipeline</button>
-                  </form>
-                  {submitStatus && <p style={{ marginTop: '16px', fontSize: '0.9em', color: submitStatus.includes('✅') ? '#059669' : '#dc2626', fontWeight: '500' }}>{submitStatus}</p>}
+
+              {/* Redesigned Premium Quick Add Form */}
+              <div style={{ backgroundColor: '#fff', padding: '32px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                <h3 style={{ margin: '0 0 24px 0', color: '#0f172a', fontSize: '1.2em' }}>⚡️ Quick Add Lead</h3>
+                <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <input name="first_name" placeholder="First Name" value={formData.first_name} onChange={handleChange} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: '#f8fafc' }}/>
+                  <input name="last_name" placeholder="Last Name" value={formData.last_name} onChange={handleChange} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: '#f8fafc' }}/>
+                  <input name="email" type="email" placeholder="Email Address" value={formData.email} onChange={handleChange} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: '#f8fafc' }}/>
+                  <input name="phone" placeholder="Phone Number" value={formData.phone} onChange={handleChange} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: '#f8fafc' }}/>
+                  <button type="submit" style={{ gridColumn: 'span 2', padding: '14px', background: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', marginTop: '8px', fontSize: '1em' }}>Add to Pipeline</button>
+                </form>
+                {submitStatus && <p style={{ marginTop: '16px', fontSize: '0.95em', color: submitStatus.includes('✅') ? '#059669' : '#dc2626', fontWeight: '500', textAlign: 'center' }}>{submitStatus}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* --- VIEW: 2. LEADS PIPELINE --- */}
+          {activeTab === 'Leads' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+              <div style={{ backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                
+                <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+                  <button onClick={exportToCSV} style={{ padding: '8px 16px', background: '#fff', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9em', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    📥 Export CSV
+                  </button>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <input type="text" placeholder="🔍 Search leads..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '300px', outline: 'none' }} />
+                    <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)} style={{ padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#fff', cursor: 'pointer', outline: 'none' }}>
+                      <option value="">All Agents</option>
+                      {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
+                    </select>
+                  </div>
                 </div>
 
-                <div style={{ flex: 1, backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-                  <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
-                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.1em' }}>Live Database</h3>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <input type="text" placeholder="🔍 Search leads..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '250px', outline: 'none' }} />
-                      <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#fff', cursor: 'pointer', outline: 'none' }}>
-                        <option value="">All Agents</option>
-                        {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
-                      </select>
-                    </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#fff', color: '#64748b', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <SortHeader label="Name" sortKey="first_name" />
+                      <SortHeader label="Stage" sortKey="stage" />
+                      <SortHeader label="Owner" sortKey="owner_id" />
+                      <th style={{ padding: '16px 24px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentLeads.length === 0 ? (
+                      <tr><td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No records match your criteria.</td></tr>
+                    ) : (
+                      currentLeads.map((lead) => (
+                        <tr key={lead.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: activeLead?.id === lead.id ? '#f8fafc' : '#fff', transition: 'background-color 0.2s' }}>
+                          <td style={{ padding: '16px 24px' }}>
+                            <div style={{ fontWeight: '600', color: '#0f172a', marginBottom: '4px', fontSize: '1.05em' }}>{lead.first_name} {lead.last_name}</div>
+                            <div style={{ color: '#64748b', fontSize: '0.9em' }}>{lead.email} • {lead.phone}</div>
+                          </td>
+                          <td style={{ padding: '16px 24px' }}>
+                            <select value={lead.stage} onChange={(e) => handleStageChange(lead.id, e.target.value)} style={{ padding: '6px 12px', borderRadius: '20px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', color: '#334155', fontWeight: '500', fontSize: '0.9em', cursor: 'pointer', outline: 'none' }}>
+                              <option value="New">New</option>
+                              <option value="Contacted">Contacted</option>
+                              <option value="Interested">Interested</option>
+                              <option value="Negotiating">Negotiating</option>
+                              <option value="Closed Won">Closed Won</option>
+                              <option value="Closed Lost">Closed Lost</option>
+                            </select>
+                          </td>
+                          <td style={{ padding: '16px 24px' }}>
+                            <select value={lead.owner_id || ""} onChange={(e) => handleOwnerChange(lead.id, e.target.value)} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid transparent', color: '#0f172a', fontWeight: '500', fontSize: '0.9em', cursor: 'pointer', backgroundColor: lead.owner_id ? '#dcfce7' : '#f1f5f9', outline: 'none' }}>
+                              <option value="">Unassigned</option>
+                              {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ padding: '16px 24px' }}>
+                            <button onClick={() => handleSelectLeadNotes(lead)} style={{ padding: '8px 16px', background: '#fff', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9em', fontWeight: '600' }}>View Notes</button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+
+                <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+                  <span style={{ color: '#64748b', fontSize: '0.9em', fontWeight: '500' }}>
+                    Showing {indexOfFirstLead + 1} to {Math.min(indexOfLastLead, sortedLeads.length)} of {sortedLeads.length} leads
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: currentPage === 1 ? '#f1f5f9' : '#fff', color: currentPage === 1 ? '#94a3b8' : '#0f172a', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontWeight: '600' }}>Previous</button>
+                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: currentPage === totalPages || totalPages === 0 ? '#f1f5f9' : '#fff', color: currentPage === totalPages || totalPages === 0 ? '#94a3b8' : '#0f172a', cursor: currentPage === totalPages || totalPages === 0 ? 'not-allowed' : 'pointer', fontWeight: '600' }}>Next</button>
                   </div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#fff', color: '#64748b', fontSize: '0.85em', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        <th style={{ padding: '16px 24px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>Name & Contact</th>
-                        <th style={{ padding: '16px 24px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>Stage</th>
-                        <th style={{ padding: '16px 24px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>Owner</th>
-                        <th style={{ padding: '16px 24px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredLeads.length === 0 ? (
-                        <tr><td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No records match your criteria.</td></tr>
-                      ) : (
-                        filteredLeads.map((lead) => (
-                          <tr key={lead.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: activeLead?.id === lead.id ? '#f8fafc' : '#fff', transition: 'background-color 0.2s' }}>
-                            <td style={{ padding: '16px 24px' }}><div style={{ fontWeight: '600', color: '#0f172a', marginBottom: '4px' }}>{lead.first_name} {lead.last_name}</div><div style={{ color: '#64748b', fontSize: '0.85em' }}>{lead.email} • {lead.phone}</div></td>
-                            <td style={{ padding: '16px 24px' }}>
-                              <select value={lead.stage} onChange={(e) => handleStageChange(lead.id, e.target.value)} style={{ padding: '6px 10px', borderRadius: '20px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', color: '#334155', fontWeight: '500', fontSize: '0.9em', cursor: 'pointer', outline: 'none' }}>
-                                <option value="New">New</option>
-                                <option value="Contacted">Contacted</option>
-                                <option value="Interested">Interested</option>
-                                <option value="Negotiating">Negotiating</option>
-                                <option value="Closed Won">Closed Won</option>
-                                <option value="Closed Lost">Closed Lost</option>
-                              </select>
-                            </td>
-                            <td style={{ padding: '16px 24px' }}>
-                              <select value={lead.owner_id || ""} onChange={(e) => handleOwnerChange(lead.id, e.target.value)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid transparent', color: '#0f172a', fontWeight: '500', fontSize: '0.9em', cursor: 'pointer', backgroundColor: lead.owner_id ? '#dcfce7' : '#f1f5f9', outline: 'none' }}>
-                                <option value="">Unassigned</option>
-                                {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
-                              </select>
-                            </td>
-                            <td style={{ padding: '16px 24px' }}>
-                              <button onClick={() => handleSelectLeadNotes(lead)} style={{ padding: '6px 12px', background: '#fff', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9em', fontWeight: '500' }}>View Notes</button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
                 </div>
+
               </div>
 
+              {/* Activity Log Component */}
               {activeLead && (
-                <div style={{ marginTop: '32px', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                   <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.1em' }}>Activity Log: <span style={{ color: '#3b82f6' }}>{activeLead.first_name} {activeLead.last_name}</span></h3>
+                    <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.2em' }}>Activity Log: <span style={{ color: '#3b82f6' }}>{activeLead.first_name} {activeLead.last_name}</span></h3>
                     <button onClick={() => setActiveLead(null)} style={{ background: 'transparent', border: 'none', fontSize: '1.2em', cursor: 'pointer', color: '#64748b' }}>✖</button>
                   </div>
                   <div style={{ padding: '24px' }}>
-                    <form onSubmit={handleAddNote} style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-                      <input type="text" placeholder="Log a call, email, or meeting note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} required style={{ flex: 1, padding: '12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '0.95em' }} />
-                      <button type="submit" style={{ padding: '0 24px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Save Note</button>
+                    <form onSubmit={handleAddNote} style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+                      <input type="text" placeholder="Log a call, email, or meeting note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} required style={{ flex: 1, padding: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '1em', backgroundColor: '#f8fafc' }} />
+                      <button type="submit" style={{ padding: '0 32px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '1em' }}>Save Note</button>
                     </form>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
-                      {notes.length === 0 ? <p style={{ color: '#94a3b8', margin: 0, fontStyle: 'italic', textAlign: 'center', padding: '20px 0' }}>No activity logged yet.</p> : notes.map(note => (
-                        <div key={note.id} style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '8px', borderLeft: '4px solid #cbd5e1' }}>
-                          <p style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '0.95em', lineHeight: '1.4' }}>{note.content}</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto' }}>
+                      {notes.length === 0 ? <p style={{ color: '#94a3b8', margin: 0, fontStyle: 'italic', textAlign: 'center', padding: '30px 0' }}>No activity logged yet.</p> : notes.map(note => (
+                        <div key={note.id} style={{ padding: '20px', backgroundColor: '#f8fafc', borderRadius: '8px', borderLeft: '4px solid #cbd5e1' }}>
+                          <p style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '1em', lineHeight: '1.5' }}>{note.content}</p>
                           <small style={{ color: '#64748b', fontSize: '0.85em' }}>Logged by <strong style={{ color: '#475569' }}>{note.author}</strong> on {new Date(note.created_at).toLocaleString()}</small>
                         </div>
                       ))}
@@ -267,13 +330,12 @@ function App() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           )}
 
-          {/* --- VIEW: ANALYTICS --- */}
+          {/* --- VIEW: 3. ANALYTICS --- */}
           {activeTab === 'Analytics' && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '32px' }}>
-              
               <ChartCard title="Active Pipeline Distribution">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stageData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
@@ -310,11 +372,10 @@ function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
-
             </div>
           )}
 
-          {/* --- VIEW: SETTINGS --- */}
+          {/* --- VIEW: 4. SETTINGS --- */}
           {activeTab === 'Settings' && (
             <div style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '12px', textAlign: 'center', color: '#64748b' }}>
               <h3>Settings Configuration</h3>
@@ -328,4 +389,4 @@ function App() {
   )
 }
 
-export default Apps
+export default App
