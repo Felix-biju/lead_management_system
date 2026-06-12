@@ -12,9 +12,14 @@ class User(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(100), nullable=False)
-    email = Column(String(150), unique=True, index=True)
-    role = Column(Enum("Agent", "TL", "Manager", "Admin", name="user_roles"), default="Agent")
+    email = Column(String(150), unique=True, index=True, nullable=False)
     
+    # --- NEW SECURITY COLUMN ---
+    hashed_password = Column(String(255), nullable=False)
+    
+    # Your existing Enum logic is perfect, we keep this exactly as is:
+    role = Column(Enum("Agent", "TL", "Manager", "Admin", name="user_roles"), default="Agent")
+
     # Relationship to leads
     leads = relationship("Lead", back_populates="owner")
 
